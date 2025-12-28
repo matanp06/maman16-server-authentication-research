@@ -1,10 +1,10 @@
-import json
-
 from flask import Flask, render_template,request
 import os
 
+import db_manager
+from db_manager import config_db
+
 project_root = os.path.dirname(os.path.abspath(__file__))
-# template_path = os.path.join(project_root, './')
 
 app = Flask(__name__, template_folder=project_root)
 
@@ -15,13 +15,6 @@ def ext_data(req):
     else:
         data = req.form
     return data
-
-#temporery database
-users = [{"id": 1,"username": "user1", "password": "1234"},
-         {"id": 2,"username": "user2", "password": "4444"},
-         {"id": 3,"username": "user3", "password": "5555"}]
-
-nextID = users[-1]["id"]+1
 
 #Main route -> HOME PAGE
 @app.route("/")
@@ -43,12 +36,15 @@ def authenticate():
     # extracting username and password
     username = data.get('username')
     password = data.get('password')
-    print(username, password)
+
+    #dismissing empty values
+    if len(username) == 0 or len(password) == 0:
+        return "Invalid username or password."
+
+    return db_manager.authenticate(username, password)
+
     #checks for now for username and password match only
-    if any(u["username"] == username and u["password"] == password for u in users):
-        return "True"
-    else:
-        return "False"
+
 
 #Register page
 @app.route("/register",methods=['GET'])
@@ -58,9 +54,7 @@ def register():
 #Register request
 @app.route("/register", methods=['POST'])
 def add_user():
-    global nextID
 
-    print("im here")
     #extracting data
     data =ext_data(request)
 
@@ -72,19 +66,11 @@ def add_user():
     if len(username) == 0 or len(password) == 0:
         return "Missing username or password."
 
-    #checking for username uniqueness
-    if any (u["username"] == username for u in users):
-        return "Username already registered"
-    else:
-        users.append({"id": nextID, "username": username, "password": password})
-        nextID += 1
-        return "Cool"
-
-
-
+    return db_manager.add_user(username, password)
 
 
 if __name__ == "__main__":
+    config_db()
     app.run(debug=True)
 
 
