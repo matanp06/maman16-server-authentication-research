@@ -3,6 +3,9 @@ import os
 
 import db_manager
 from db_manager import config_db
+from dotenv import load_dotenv
+
+load_dotenv()
 
 project_root = os.path.dirname(os.path.abspath(__file__))
 
