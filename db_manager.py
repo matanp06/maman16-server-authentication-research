@@ -1,7 +1,13 @@
 import hashlib
+import json
 import os
 import secrets
 import sqlite3
+import time
+import uuid
+import pyotp
+from os import getenv
+
 import argon2
 import bcrypt
 from argon2 import PasswordHasher
@@ -13,6 +19,8 @@ pass_hasher = PasswordHasher(
 )
 
 security=os.getenv("SECURITY")
+
+totp_list = {}
 
 #connecting to the db and creating it if it doesn't exist
 def config_db():
@@ -45,7 +53,7 @@ def config_db():
 
 #add user if username is not in use already
 #if returns error
-def add_user(username, password):
+def add_user(username, password,secret=None):
 
     #creating all the passwords needed for this experiment
     #using all of them in the same DB for convenience of usage
@@ -58,6 +66,9 @@ def add_user(username, password):
     password_bcrypt = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt())
     password_argon2 = pass_hasher.hash(password)
 
+    if secret is None:
+        secret = pyotp.random_base32(32)
+
     try:
         #adding user and it's passwords to the db
         with sqlite3.connect('database.db') as connection:
@@ -69,7 +80,8 @@ def add_user(username, password):
              password_salt_hash,
              password_pepper_hash,
              password_bcrypt,
-             password_argon2) VALUES (?,?,?,?,?,?,?,?)""",
+             password_argon2,
+             totp_secret) VALUES (?,?,?,?,?,?,?,?,?)""",
                            (username,
                             password,
                             password_hash,
@@ -77,15 +89,16 @@ def add_user(username, password):
                             password_salt_hash,
                             password_pepper_hash,
                             password_bcrypt,
-                            password_argon2,))
+                            password_argon2,
+                            secret,))
             user_id = cursor.lastrowid
             cursor.execute("INSERT INTO USER_SPECS (user_id) VALUES (?) ", (user_id,))
             connection.commit()
-        return "registered successfully"
+        return json.JSONEncoder.encode({"status":"registered successfully","secret":secret})
 
     #username is already exists
     except sqlite3.IntegrityError:
-        return "Username already in use."
+        return json.JSONEncoder.encode({"status": "failed","reason":"user already exists"})
 
 
 
@@ -94,7 +107,7 @@ def add_user(username, password):
 def authenticate(username, password):
     try:
         #connecting to the db
-        with sqlite3.connect('database.db') as connection:
+        with (sqlite3.connect('database.db') as connection):
             cursor = connection.cursor()
 
             #extracting the current used security
@@ -120,12 +133,23 @@ def authenticate(username, password):
             else:
                 res = authenticate_argon2(username, password,cursor)
 
-            #autheticated successfully
-            if res:
-                return "True"
 
-            #incorrect password
-            return "Invalid username or password."
+            # incorrect password
+            if not res:
+                return False,json.JSONEncoder.encode({"status":"authentication failed"})
+
+            #in case the Multi-factor authentication enabled
+            if getenv("MFA_on"):
+                temp_token = uuid.uuid4().hex
+                totp_list[temp_token] =\
+                    {"username": username,
+                     "timeout":time.time()+120,
+                     "attempts_left":5}
+                return True,json.JSONEncoder.encode({"status": "totp_required","MFA_token": temp_token})
+
+            else:
+                return True,json.JSONEncoder.encode({"status":"authenticated"})
+
 
     finally:
         connection.close()
@@ -227,3 +251,58 @@ def authenticate_argon2(username,password,cursor):
     if pass_hasher.verify(res[0], password):
         return True
     return False
+
+#handling the totp authentication
+def MFA_authenticate(MFA_token, MFA_code):
+
+    #extracting the totp list
+    totp_info = totp_list.get(MFA_token)
+    #no temporary token exists -> no legal attempts left for totp
+    if totp_info is None:
+        return json.JSONEncoder.encode({"status":"authentication failed"})
+
+    #the temporary token used too late -> limit is two minutes from generation
+    if(time.time() > totp_info["timeout"]):
+        del totp_list[MFA_token]
+        return json.JSONEncoder.encode({"status": "timeout"})
+
+    #too much attempts -> maximum attempts is 5
+    if(totp_info["attempts_left"] <= 0):
+        del totp_list[MFA_token]
+        return json.JSONEncoder.encode({"status": "authentication failed"})
+
+    #legal attempt from here
+
+    totp_info["attempts_left"] = totp_info["attempts_left"] - 1
+    username = totp_info["username"]
+
+    try:
+        with (sqlite3.connect('database.db') as connection):
+            cursor = connection.cursor()
+            #extracting the user's secret
+            cursor.execute("SELECT totp_secret FROM USERS WHERE username = ?",
+                           (username,))
+            res = cursor.fetchone()
+
+            #user is not exists -> shouldn't happen but in case of data corruption
+            if res is None:
+                return json.JSONEncoder.encode({"status": "authentication failed"})
+
+
+            totp_secret = res[0]
+            #secret is not exists -> could only happen in migration time
+            if totp_secret is None:
+                return json.JSONEncoder.encode({"status":"error!","message":"no secret exists"})
+
+            totp = pyotp.TOTP(totp_secret,digits=6,interval=30)
+
+            #verifing totp
+            if totp.verify(MFA_code,valid_window=1):
+                del totp_list[MFA_token]
+                return json.JSONEncoder.encode({"status":"authenticated"})
+            else:
+                return json.JSONEncoder.encode({"status":"authentication failed"})
+
+
+    finally: connection.close()
+
