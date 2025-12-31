@@ -94,11 +94,11 @@ def add_user(username, password,secret=None):
             user_id = cursor.lastrowid
             cursor.execute("INSERT INTO USER_SPECS (user_id) VALUES (?) ", (user_id,))
             connection.commit()
-        return json.JSONEncoder.encode({"status":"registered successfully","secret":secret})
+        return json.dumps({"status":"registered successfully","secret":secret})
 
     #username is already exists
     except sqlite3.IntegrityError:
-        return json.JSONEncoder.encode({"status": "failed","reason":"user already exists"})
+        return json.dumps({"status": "failed","reason":"user already exists"})
 
 
 
@@ -136,7 +136,7 @@ def authenticate(username, password):
 
             # incorrect password
             if not res:
-                return False,json.JSONEncoder.encode({"status":"authentication failed"})
+                return False,json.dumps({"status":"authentication failed"})
 
             #in case the Multi-factor authentication enabled
             if getenv("MFA_on"):
@@ -145,10 +145,10 @@ def authenticate(username, password):
                     {"username": username,
                      "timeout":time.time()+120,
                      "attempts_left":5}
-                return True,json.JSONEncoder.encode({"status": "totp_required","MFA_token": temp_token})
+                return True,json.dumps({"status": "totp_required","MFA_token": temp_token})
 
             else:
-                return True,json.JSONEncoder.encode({"status":"authenticated"})
+                return True,json.dumps({"status":"authenticated"})
 
 
     finally:
@@ -259,17 +259,17 @@ def MFA_authenticate(MFA_token, MFA_code):
     totp_info = totp_list.get(MFA_token)
     #no temporary token exists -> no legal attempts left for totp
     if totp_info is None:
-        return json.JSONEncoder.encode({"status":"authentication failed"})
+        return json.dumps({"status":"authentication failed"})
 
     #the temporary token used too late -> limit is two minutes from generation
     if(time.time() > totp_info["timeout"]):
         del totp_list[MFA_token]
-        return json.JSONEncoder.encode({"status": "timeout"})
+        return json.dumps({"status": "timeout"})
 
     #too much attempts -> maximum attempts is 5
     if(totp_info["attempts_left"] <= 0):
         del totp_list[MFA_token]
-        return json.JSONEncoder.encode({"status": "authentication failed"})
+        return json.dumps({"status": "authentication failed"})
 
     #legal attempt from here
 
@@ -286,22 +286,22 @@ def MFA_authenticate(MFA_token, MFA_code):
 
             #user is not exists -> shouldn't happen but in case of data corruption
             if res is None:
-                return json.JSONEncoder.encode({"status": "authentication failed"})
+                return json.dumps({"status": "authentication failed"})
 
 
             totp_secret = res[0]
             #secret is not exists -> could only happen in migration time
             if totp_secret is None:
-                return json.JSONEncoder.encode({"status":"error!","message":"no secret exists"})
+                return json.dumps({"status":"error!","message":"no secret exists"})
 
             totp = pyotp.TOTP(totp_secret,digits=6,interval=30)
 
             #verifing totp
             if totp.verify(MFA_code,valid_window=1):
                 del totp_list[MFA_token]
-                return json.JSONEncoder.encode({"status":"authenticated"})
+                return json.dumps({"status":"authenticated"})
             else:
-                return json.JSONEncoder.encode({"status":"authentication failed"})
+                return json.dumps({"status":"authentication failed"})
 
 
     finally: connection.close()

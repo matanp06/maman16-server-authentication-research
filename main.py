@@ -50,7 +50,7 @@ def authenticate():
     #handle captcha
     if is_captcha_on and captcha_manager.captcha_required(user_ip):
         if captcha_token is None:
-            return json.JSONEncoder.encode({"status": "failed","reason":"captcha token is required"})
+            return json.dumps({"status": "failed","reason":"captcha token is required"})
         captcha_test_res,message = captcha_manager.validate_captcha_code(user_ip,captcha_token)
         if not captcha_test_res:
             return message
