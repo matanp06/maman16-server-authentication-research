@@ -112,7 +112,7 @@ def authenticate(username, password):
             cursor = connection.cursor()
 
             #works only if locking mechanism is enabled
-            if os.getenv("IS_LOCKING") and is_user_locked(username,cursor):
+            if os.getenv("IS_LOCKING")=="True" and is_user_locked(username,cursor):
                 return json.dumps({"status": "failed","reason":"user already locked"})
 
             #works only if user rate_limiting mechanism is enabled
@@ -151,7 +151,7 @@ def authenticate(username, password):
             reset_failed_attempts(cursor.lastrowid, cursor)
 
             #in case the Multi-factor authentication enabled
-            if getenv("MFA_on"):
+            if getenv("MFA_on")=="True":
                 temp_token = uuid.uuid4().hex
                 totp_list[temp_token] =\
                     {"username": username,

@@ -1,4 +1,5 @@
 import json
+import time
 
 from flask import Flask, render_template,request
 import os
@@ -108,7 +109,6 @@ def admin_get_captcha_token():
 
     #generating captcha answer
     return captcha_manager.captcha_gen(user_ip,tested_group_seed)
-
 
 
 if __name__ == "__main__":
