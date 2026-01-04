@@ -95,11 +95,11 @@ def add_user(username, password,secret=None):
             user_id = cursor.lastrowid
             cursor.execute("INSERT INTO USER_SPECS (user_id) VALUES (?) ", (user_id,))
             connection.commit()
-        return json.dumps({"status":"registered successfully","secret":secret})
+        return True,json.dumps({"status":"registered successfully","secret":secret})
 
     #username is already exists
     except sqlite3.IntegrityError:
-        return json.dumps({"status": "failed","reason":"user already exists"})
+        return False,json.dumps({"status": "failed","reason":"user already exists"})
 
 
 
@@ -271,17 +271,17 @@ def MFA_authenticate(MFA_token, MFA_code):
     totp_info = totp_list.get(MFA_token)
     #no temporary token exists -> no legal attempts left for totp
     if totp_info is None:
-        return json.dumps({"status":"authentication failed"})
+        return False, json.dumps({"status":"authentication failed"})
 
     #the temporary token used too late -> limit is two minutes from generation
     if time.time() > totp_info["timeout"]:
         del totp_list[MFA_token]
-        return json.dumps({"status": "timeout"})
+        return False,json.dumps({"status": "timeout"})
 
     #too much attempts -> maximum attempts is 5
     if totp_info["attempts_left"] <= 0:
         del totp_list[MFA_token]
-        return json.dumps({"status": "authentication failed"})
+        return False,json.dumps({"status": "authentication failed"})
 
     #legal attempt from here
 
@@ -298,39 +298,39 @@ def MFA_authenticate(MFA_token, MFA_code):
 
             #user is not exists -> shouldn't happen but in case of data corruption
             if res is None:
-                return json.dumps({"status": "authentication failed"})
+                return False,json.dumps({"status": "authentication failed"})
 
 
             totp_secret = res[0]
             #secret is not exists -> could only happen in migration time
             if totp_secret is None:
-                return json.dumps({"status":"error!","message":"no secret exists"})
+                return False,json.dumps({"status":"error!","message":"no secret exists"})
 
             totp = pyotp.TOTP(totp_secret,digits=6,interval=30)
 
             #verifing totp
             if totp.verify(MFA_code,valid_window=1):
                 del totp_list[MFA_token]
-                return json.dumps({"status":"authenticated"})
+                return True,json.dumps({"status":"authenticated"})
             else:
-                return json.dumps({"status":"authentication failed"})
+                return False,json.dumps({"status":"authentication failed"})
 
 
     finally: connection.close()
 
 #increase the failed_attempts field
 def inc_failed_attempts(record_id,cursor):
-    cursor.execute("""UPDATE USERS_SPECS SET failed_attempts = failed_attempts + 1,
+    cursor.execute("""UPDATE USER_SPECS SET failed_attempts = failed_attempts + 1,
      last_attempt = datetime('now'),
-     is_locked = (CASE WHEN failed_attempts + 1 > 5= THEN TRUE ELSE FALSE END) 
-     WHERE id = ? """, (record_id,))
+     is_locked = (CASE WHEN failed_attempts + 1 >= 5 THEN 1 ELSE 0 END) 
+     WHERE user_id = ? """, (record_id,))
     cursor.connection.commit()
 
 #reset failed attempts of logging should be used only after a successful login
 def reset_failed_attempts(record_id,cursor):
-    cursor.execute("""UPDATE USERS_SPECS SET failed_attempts = 0,
+    cursor.execute("""UPDATE USER_SPECS SET failed_attempts = 0,
     last_attempt = datetime('now')
-    WHERE id = ? """, (record_id,))
+    WHERE user_id = ? """, (record_id,))
     cursor.connection.commit()
 
 #checking if a user is locked also updating the lock

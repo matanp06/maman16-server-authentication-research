@@ -48,6 +48,15 @@ def authenticate():
     is_captcha_on=os.getenv('CAPTCHA_ON')
     user_ip = request.remote_addr
 
+    #debug
+    print(json.dumps({
+        'username': username,
+        'password': password,
+        'secret': secret,
+        'captcha_token':captcha_token
+    }))
+
+
     #handle captcha
     if is_captcha_on and captcha_manager.captcha_required(user_ip):
         if captcha_token is None:
@@ -68,7 +77,8 @@ def authenticate():
         else:
             captcha_manager.update_successful_login_attempts(user_ip)
 
-    return ret_json
+    print(ret_json)
+    return ret_json, (200 if login_res==True else 401)
 
 
 @app.route("/login_totp",methods=['POST'])
@@ -76,7 +86,8 @@ def login_totp():
     data = ext_data(request)
     MFA_token = data.get('MFA_token')
     MFA_code = data.get('MFA_code')
-    return db_manager.MFA_authenticate(MFA_token, MFA_code)
+    login_res,ret_json = db_manager.MFA_authenticate(MFA_token, MFA_code)
+    return ret_json, (200 if login_res==True else 401)
 
 #Register page
 @app.route("/register",methods=['GET'])
@@ -98,7 +109,8 @@ def add_user():
     if len(username) == 0 or len(password) == 0:
         return "Missing username or password."
 
-    return db_manager.add_user(username, password)
+    register_res,ret_json =  db_manager.add_user(username, password)
+    return ret_json, (200 if register_res==True else 401)
 
 #the captcha solving path
 @app.route("/admin/get_captcha_token", methods=['GET'])
@@ -108,7 +120,9 @@ def admin_get_captcha_token():
     user_ip = request.remote_addr
 
     #generating captcha answer
-    return captcha_manager.captcha_gen(user_ip,tested_group_seed)
+    print(captcha_manager.captcha_gen(user_ip,tested_group_seed))
+    captcha_res,ret_json = captcha_manager.captcha_gen(user_ip,tested_group_seed)
+    return ret_json, (200 if captcha_res==True else 403)
 
 
 if __name__ == "__main__":
