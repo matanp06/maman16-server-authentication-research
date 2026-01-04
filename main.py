@@ -6,6 +6,7 @@ import os
 
 import captcha_manager
 import db_manager
+import log_manager
 from db_manager import config_db
 from dotenv import load_dotenv
 
@@ -37,6 +38,7 @@ def login():
 @app.route("/login", methods=['POST'])
 def authenticate():
 
+    start_time = time.time()
     # extracting data
     data = ext_data(request)
 
@@ -60,15 +62,20 @@ def authenticate():
     #handle captcha
     if is_captcha_on and captcha_manager.captcha_required(user_ip):
         if captcha_token is None:
-            return json.dumps({"status": "failed","reason":"captcha token is required"})
-        captcha_test_res,message = captcha_manager.validate_captcha_code(user_ip,captcha_token)
+            res_json = json.dumps({"status": "failed","reason":"captcha token is required"})
+            log_manager.write_log(username,start_time,request.path,403,res_json)
+            return res_json,403
+        captcha_test_res,res_json = captcha_manager.validate_captcha_code(user_ip,captcha_token)
         if not captcha_test_res:
-            return message
+            log_manager.write_log(username, start_time, request.path, 403,res_json )
+            return res_json,403
 
 
     #dismissing empty values
     if len(username) == 0 or len(password) == 0:
-        return "Invalid username or password."
+        res_json = json.dumps({"status": "failed","reason":"username or password is empty"})
+        log_manager.write_log(username,start_time,request.path,403,res_json)
+        return res_json,403
 
     login_res,ret_json =db_manager.authenticate(username, password)
     if is_captcha_on:
@@ -78,7 +85,9 @@ def authenticate():
             captcha_manager.update_successful_login_attempts(user_ip)
 
     print(ret_json)
-    return ret_json, (200 if login_res==True else 401)
+    status_code = 200 if login_res==True else 401
+    log_manager.write_log(username,start_time,request.path,status_code,ret_json)
+    return ret_json, status_code
 
 
 @app.route("/login_totp",methods=['POST'])
@@ -87,7 +96,8 @@ def login_totp():
     MFA_token = data.get('MFA_token')
     MFA_code = data.get('MFA_code')
     login_res,ret_json = db_manager.MFA_authenticate(MFA_token, MFA_code)
-    return ret_json, (200 if login_res==True else 401)
+    status = 200 if login_res==True else 401
+    return ret_json, status
 
 #Register page
 @app.route("/register",methods=['GET'])
@@ -97,6 +107,8 @@ def register():
 #Register request
 @app.route("/register", methods=['POST'])
 def add_user():
+
+    start_time = time.time()
 
     #extracting data
     data =ext_data(request)
@@ -110,7 +122,9 @@ def add_user():
         return "Missing username or password."
 
     register_res,ret_json =  db_manager.add_user(username, password)
-    return ret_json, (200 if register_res==True else 401)
+    status = 200 if register_res==True else 401
+    log_manager.write_log(username,start_time,"/register",status,ret_json)
+    return ret_json, status
 
 #the captcha solving path
 @app.route("/admin/get_captcha_token", methods=['GET'])
@@ -127,6 +141,7 @@ def admin_get_captcha_token():
 
 if __name__ == "__main__":
     config_db()
+    log_manager.setup()
     app.run(debug=True)
 
 

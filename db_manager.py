@@ -11,6 +11,7 @@ from os import getenv
 import argon2
 import bcrypt
 from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError
 
 pass_hasher = PasswordHasher(
     time_cost=1,
@@ -260,9 +261,11 @@ def authenticate_argon2(username,password,cursor):
         return False
 
     #comparing hashes
-    if pass_hasher.verify(res[0], password):
+    try:
+        pass_hasher.verify(res[0], password)
         return True
-    return False
+    except argon2.exceptions.VerifyMismatchError:
+        return False
 
 #handling the totp authentication
 def MFA_authenticate(MFA_token, MFA_code):
