@@ -146,10 +146,10 @@ def authenticate(username, password):
 
             # incorrect password
             if not res:
-                inc_failed_attempts(cursor.lastrowid, cursor)
+                inc_failed_attempts(username, cursor)
                 return False,json.dumps({"status":"authentication failed"})
 
-            reset_failed_attempts(cursor.lastrowid, cursor)
+            reset_failed_attempts(username, cursor)
 
             #in case the Multi-factor authentication enabled
             if getenv("MFA_on")=="True":
@@ -252,6 +252,7 @@ def authenticate_bcrypt(username,password,cursor):
 #gets a username password and cursor
 #extracting the username's argon2 password with the input password
 def authenticate_argon2(username,password,cursor):
+    print("im in argon2")
     #extracting the user's argon2 hashes
     cursor.execute("SELECT password_argon2 FROM USERS WHERE username = ?", (username,))
     res = cursor.fetchone()
@@ -270,26 +271,30 @@ def authenticate_argon2(username,password,cursor):
 #handling the totp authentication
 def MFA_authenticate(MFA_token, MFA_code):
 
+    print(MFA_code)
     #extracting the totp list
     totp_info = totp_list.get(MFA_token)
+    print (totp_info)
     #no temporary token exists -> no legal attempts left for totp
     if totp_info is None:
-        return False, json.dumps({"status":"authentication failed"})
+        return False, json.dumps({"status":"authentication failed"}),None
 
+    username = totp_info['username']
     #the temporary token used too late -> limit is two minutes from generation
     if time.time() > totp_info["timeout"]:
         del totp_list[MFA_token]
-        return False,json.dumps({"status": "timeout"})
+        return False,json.dumps({"status": "timeout"}),username
 
     #too much attempts -> maximum attempts is 5
     if totp_info["attempts_left"] <= 0:
         del totp_list[MFA_token]
-        return False,json.dumps({"status": "authentication failed"})
+        return False,json.dumps({"status": "authentication failed"}),username
 
     #legal attempt from here
 
     totp_info["attempts_left"] = totp_info["attempts_left"] - 1
-    username = totp_info["username"]
+
+    print (totp_info)
 
     try:
         with (sqlite3.connect('database.db') as connection):
@@ -301,54 +306,59 @@ def MFA_authenticate(MFA_token, MFA_code):
 
             #user is not exists -> shouldn't happen but in case of data corruption
             if res is None:
-                return False,json.dumps({"status": "authentication failed"})
+                return False,json.dumps({"status": "authentication failed"}),username
 
 
             totp_secret = res[0]
+            print(totp_secret)
             #secret is not exists -> could only happen in migration time
             if totp_secret is None:
-                return False,json.dumps({"status":"error!","message":"no secret exists"})
+                return False,json.dumps({"status":"error!","message":"no secret exists"}),username
 
             totp = pyotp.TOTP(totp_secret,digits=6,interval=30)
 
             #verifing totp
+            print(MFA_code)
             if totp.verify(MFA_code,valid_window=1):
                 del totp_list[MFA_token]
-                return True,json.dumps({"status":"authenticated"})
+                return True,json.dumps({"status":"authenticated"}),username
             else:
-                return False,json.dumps({"status":"authentication failed"})
+                return False,json.dumps({"status":"authentication failed"}),username
 
 
     finally: connection.close()
 
 #increase the failed_attempts field
-def inc_failed_attempts(record_id,cursor):
+def inc_failed_attempts(username,cursor):
     cursor.execute("""UPDATE USER_SPECS SET failed_attempts = failed_attempts + 1,
      last_attempt = datetime('now'),
      is_locked = (CASE WHEN failed_attempts + 1 >= 5 THEN 1 ELSE 0 END) 
-     WHERE user_id = ? """, (record_id,))
+     FROM USERS 
+     WHERE USER_SPECS.user_id = USERS.id AND USERS.username = ? """, (username,))
     cursor.connection.commit()
 
 #reset failed attempts of logging should be used only after a successful login
-def reset_failed_attempts(record_id,cursor):
+def reset_failed_attempts(username,cursor):
     cursor.execute("""UPDATE USER_SPECS SET failed_attempts = 0,
     last_attempt = datetime('now')
-    WHERE user_id = ? """, (record_id,))
+    FROM USERS 
+    WHERE USER_SPECS.user_id = USERS.id AND USERS.username = ? """, (username,))
     cursor.connection.commit()
 
 #checking if a user is locked also updating the lock
 #according to the timestamp of the last attempt
 def is_user_locked(username,cursor):
-    cursor.execute("""UPDATE USERS_SPECS 
-     is_locked = CASE
-        WHEN is_locked AND datetime(last_attempt,'+5 minutes' > datetime('now') then FALSE
-        ELSE TRUE
+    cursor.execute("""UPDATE USER_SPECS 
+     SET is_locked = CASE
+        WHEN is_locked = 1 AND datetime(last_attempt,'+5 minutes') > datetime('now') then 1
+        ELSE 0
      END,
      failed_attempts = CASE
-        datetime(last_attempt,'+5 minutes' > datetime('now') then 0
-        ELSE failed_attempts
+        WHEN datetime(last_attempt,'+5 minutes') > datetime('now') then failed_attempts
+        ELSE 0
      END
-     WHERE username = ?
+     FROM USERS
+     WHERE USER_SPECS.user_id = USERS.id AND USERS.username = ?
      RETURNING is_locked""", (username,))
     res = cursor.fetchone()
     cursor.connection.commit()
@@ -360,13 +370,14 @@ def is_user_locked(username,cursor):
 def get_access_token(username,cursor):
     cursor.execute("""UPDATE USER_SPECS 
     SET token_counts = CASE
-    WHEN (MIN (5.0,rate_tokens+(unixepoch() - last_rate_update)*0.1))>=1.0
-    THEN (MIN (5.0, rate_tokens+(unixepoch() - last_rate_update)*0.1))-1.0
-    ELSE (MIN (5.0, rate_tokens+(unixepoch() - last_rate_update)*0.1))
+    WHEN (MIN (5.0,token_counts+(unixepoch() - last_token_update)*2.0))>=1.0
+    THEN (MIN (5.0, token_counts+(unixepoch() - last_token_update)*2.0))-1.0
+    ELSE (MIN (5.0, token_counts+(unixepoch() - last_token_update)*2.0))
     END,
-    last_rate_update = unixepoch()
-    WHERE username = ?
-    RETURNING rate_tokens""", (username,))
+    last_token_update = unixepoch()
+    FROM USERS
+    WHERE USER_SPECS.user_id = USERS.id AND USERS.username = ?
+    RETURNING token_counts""", (username,))
     res = cursor.fetchone()
     if res is None or res[0]<0:
         return False

@@ -26,7 +26,7 @@ def setup():
     is_rate_limiting = os.getenv('IS_RATE_LIMITING')
 
 #creating the json file from the given user parameters
-def write_log(username,start_time,route,status,res_json):
+def write_log(username,start_time,route,status,res_json,fail_reason=None):
     global hashing_method
     global totp_status
     global using_captcha
@@ -40,7 +40,7 @@ def write_log(username,start_time,route,status,res_json):
     #creating a readable start time
     start_time_readable = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(start_time))
     #extracting the fail reason from the res_json
-    fail_reason = (json.loads(res_json)).get('reason',"None")
+    fail_reason = fail_reason or (json.loads(res_json)).get('reason',"None")
     #creating the json log
     json_str = json.dumps({"route":route,
                            "status_code":status,

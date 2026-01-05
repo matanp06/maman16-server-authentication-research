@@ -92,11 +92,14 @@ def authenticate():
 
 @app.route("/login_totp",methods=['POST'])
 def login_totp():
+    start_time = time.time()
     data = ext_data(request)
     MFA_token = data.get('MFA_token')
     MFA_code = data.get('MFA_code')
-    login_res,ret_json = db_manager.MFA_authenticate(MFA_token, MFA_code)
+    print("MFA_code",MFA_code)
+    login_res,ret_json,username = db_manager.MFA_authenticate(MFA_token, MFA_code)
     status = 200 if login_res==True else 401
+    log_manager.write_log(username,start_time,request.path,status,ret_json)
     return ret_json, status
 
 #Register page
@@ -116,12 +119,13 @@ def add_user():
     #extracting username and password
     username = data.get('username')
     password = data.get('password')
+    secret = data.get('secret')#for debug perpuse only
 
     #checking for legality
     if len(username) == 0 or len(password) == 0:
         return "Missing username or password."
 
-    register_res,ret_json =  db_manager.add_user(username, password)
+    register_res,ret_json =  db_manager.add_user(username, password,secret)
     status = 200 if register_res==True else 401
     log_manager.write_log(username,start_time,"/register",status,ret_json)
     return ret_json, status
