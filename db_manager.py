@@ -114,12 +114,12 @@ def authenticate(username, password):
 
             #works only if locking mechanism is enabled
             if os.getenv("IS_LOCKING")=="True" and is_user_locked(username,cursor):
-                return json.dumps({"status": "failed","reason":"user already locked"})
+                return False,json.dumps({"status": "failed","reason":"user locked"})
 
             #works only if user rate_limiting mechanism is enabled
             if os.getenv("IS_RATE_LIMITING") == "True":
                 if not get_access_token(username,cursor):
-                    return json.dumps({"status": "failed","reason":""})
+                    return json.dumps({"status": "failed","reason":"rate limited"})
 
             #extracting the current used security
             sec_method = os.getenv("SECURITY")
@@ -362,7 +362,7 @@ def is_user_locked(username,cursor):
      RETURNING is_locked""", (username,))
     res = cursor.fetchone()
     cursor.connection.commit()
-    if res is None or res[0]==False:
+    if res is None or res[0]==0:
         return False
     return True
 

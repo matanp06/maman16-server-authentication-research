@@ -78,14 +78,21 @@ def authenticate():
         return res_json,403
 
     login_res,ret_json =db_manager.authenticate(username, password)
+    print(login_res,ret_json)
     if is_captcha_on == "True":
         if not login_res:
             captcha_manager.update_password_failed_attempts(user_ip)
         else:
             captcha_manager.update_successful_login_attempts(user_ip)
 
-    print(ret_json)
-    status_code = 200 if login_res==True else 401
+    reason = json.loads(ret_json).get('reason')
+    if login_res:
+        status_code = 200
+    elif reason is not None and reason == "user locked":
+        status_code = 403
+    else:
+        status_code = 401
+
     log_manager.write_log(username,start_time,request.path,status_code,ret_json)
     return ret_json, status_code
 
