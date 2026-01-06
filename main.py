@@ -60,7 +60,7 @@ def authenticate():
 
 
     #handle captcha
-    if is_captcha_on and captcha_manager.captcha_required(user_ip):
+    if is_captcha_on == "True" and captcha_manager.captcha_required(user_ip):
         if captcha_token is None:
             res_json = json.dumps({"status": "failed","reason":"captcha token is required"})
             log_manager.write_log(username,start_time,request.path,403,res_json)
@@ -78,7 +78,7 @@ def authenticate():
         return res_json,403
 
     login_res,ret_json =db_manager.authenticate(username, password)
-    if is_captcha_on:
+    if is_captcha_on == "True":
         if not login_res:
             captcha_manager.update_password_failed_attempts(user_ip)
         else:
