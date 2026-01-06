@@ -133,6 +133,8 @@ def add_user():
 #the captcha solving path
 @app.route("/admin/get_captcha_token", methods=['GET'])
 def admin_get_captcha_token():
+
+    start_time = time.time()
     #extracting required parameters
     tested_group_seed = request.args.get('group_seed')
     user_ip = request.remote_addr
@@ -140,13 +142,15 @@ def admin_get_captcha_token():
     #generating captcha answer
     print(captcha_manager.captcha_gen(user_ip,tested_group_seed))
     captcha_res,ret_json = captcha_manager.captcha_gen(user_ip,tested_group_seed)
-    return ret_json, (200 if captcha_res==True else 403)
+    status = (200 if captcha_res==True else 403)
+    log_manager.write_log(username=request.remote_addr,start_time=start_time,route=request.path,status=status,res_json=ret_json)
+    return ret_json, status
 
 
 if __name__ == "__main__":
     config_db()
     log_manager.setup()
-    app.run(debug=True)
+    app.run(debug=False)
 
 
 
