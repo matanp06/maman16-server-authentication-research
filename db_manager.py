@@ -119,7 +119,7 @@ def authenticate(username, password):
             #works only if user rate_limiting mechanism is enabled
             if os.getenv("IS_RATE_LIMITING") == "True":
                 if not get_access_token(username,cursor):
-                    return json.dumps({"status": "failed","reason":"rate limited"})
+                    return False,json.dumps({"status": "failed","reason":"rate limit"})
 
             #extracting the current used security
             sec_method = os.getenv("SECURITY")
@@ -350,11 +350,11 @@ def reset_failed_attempts(username,cursor):
 def is_user_locked(username,cursor):
     cursor.execute("""UPDATE USER_SPECS 
      SET is_locked = CASE
-        WHEN is_locked = 1 AND datetime(last_attempt,'+5 minutes') > datetime('now') then 1
+        WHEN is_locked = 1 AND datetime(last_attempt,'+1 seconds') > datetime('now') then 1
         ELSE 0
      END,
      failed_attempts = CASE
-        WHEN datetime(last_attempt,'+5 minutes') > datetime('now') then failed_attempts
+        WHEN datetime(last_attempt,'+1 seconds') > datetime('now') then failed_attempts
         ELSE 0
      END
      FROM USERS
@@ -368,17 +368,19 @@ def is_user_locked(username,cursor):
 
 #aquires the user access token
 def get_access_token(username,cursor):
-    cursor.execute("""UPDATE USER_SPECS 
-    SET token_counts = CASE
-    WHEN (MIN (5.0,token_counts+(unixepoch() - last_token_update)*2.0))>=1.0
-    THEN (MIN (5.0, token_counts+(unixepoch() - last_token_update)*2.0))-1.0
-    ELSE (MIN (5.0, token_counts+(unixepoch() - last_token_update)*2.0))
-    END,
+    recharged_tokens_amount = "MIN (5.0,token_counts+(unixepoch() - last_token_update)*2.0)"
+    cursor.execute(f"""UPDATE USER_SPECS 
+    SET 
+    token_counts = {recharged_tokens_amount} -1.0,
     last_token_update = unixepoch()
     FROM USERS
-    WHERE USER_SPECS.user_id = USERS.id AND USERS.username = ?
+    WHERE 
+        USER_SPECS.user_id = USERS.id 
+        AND USERS.username = ?
+        AND ({recharged_tokens_amount}) >= 1.0 
     RETURNING token_counts""", (username,))
     res = cursor.fetchone()
-    if res is None or res[0]<0:
+    print(res)
+    if res is None:
         return False
     return True
